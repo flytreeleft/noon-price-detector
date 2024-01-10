@@ -55,26 +55,21 @@ chrome.alarms.onAlarm.addListener(async () => {
   try {
     const products = await storage.all();
 
-    const results = await Promise.all(
+    const newProducts = await Promise.all(
       Object.keys(products)
         .map((id) => products[id])
         .map((product) => fetchProduct(product.url))
-    ).then((values) =>
-      Promise.all(
-        values.map((newProduct) =>
-          storage
-            .save(newProduct)
-            .then((changed) => [
-              changed,
-              { new: newProduct, old: products[newProduct.id] }
-            ])
-        )
-      )
     );
 
-    const changes = results
-      .filter((value) => value[0])
-      .map((value) => value[1]);
+    const changes = [];
+    // Note：不能同时异步存储多条数据，否则，只有第一条数据能够被保存，
+    // 其他数据会因为未读写同步导致获取的全量数据不是前一次更新后的数据
+    for (let newProduct of newProducts) {
+      const changed = await storage.save(newProduct);
+      if (changed) {
+        changes.push({ new: newProduct, old: products[newProduct.id] });
+      }
+    }
 
     if (changes.length > 0) {
       changes.forEach(notifyPriceChanged);
@@ -88,7 +83,7 @@ chrome.alarms.onAlarm.addListener(async () => {
     console.error(e);
   }
 
-  const delay = getRandomInt(5, 15);
+  const delay = getRandomInt(1, 5);
   console.info(`在 ${delay} 分钟后继续下一次的价格检查`);
 
   await chrome.alarms.create(ALARM_PRODUCT_PRICE_CHANGED, {
